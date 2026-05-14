@@ -1,0 +1,94 @@
+name: Search Code
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch"
+        required: true
+        default: "main"
+
+      search:
+        description: "Keyword"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cache Repository
+        id: cache-repo
+        uses: actions/cache@v4
+        with:
+          path: repo-src
+          key: rosemary-${{ github.event.inputs.branch }}
+
+      - name: Clone or Update Repository
+        run: |
+          if [ -d "repo-src/.git" ]; then
+            cd repo-src
+            git fetch origin ${{ github.event.inputs.branch }} --depth 1
+            git reset --hard origin/${{ github.event.inputs.branch }}
+          else
+            git clone --depth 1 --branch ${{ github.event.inputs.branch }} https://github.com/lkv414/kernel_xiaomi_rosemary repo-src
+          fi
+
+      - name: Search keyword in source
+        run: |
+          KEY="${{ github.event.inputs.search }}"
+          cd repo-src
+
+          echo "======================================" > ../search_report.txt
+          echo "FILES CONTAINING: $KEY" >> ../search_report.txt
+          echo "======================================" >> ../search_report.txt
+          grep -RIl --exclude-dir=.git "$KEY" . >> ../search_report.txt || true
+
+          echo "" >> ../search_report.txt
+          echo "======================================" >> ../search_report.txt
+          echo "DETAILED MATCHES (file:line:number)" >> ../search_report.txt
+          echo "======================================" >> ../search_report.txt
+          grep -RIn --exclude-dir=.git "$KEY" . >> ../search_report.txt || true
+
+          echo "" >> ../search_report.txt
+          echo "======================================" >> ../search_report.txt
+          echo "ONE LINE CODE MATCH" >> ../search_report.txt
+          echo "======================================" >> ../search_report.txt
+          grep -RIn --exclude-dir=.git "$KEY" . | while IFS=: read -r file line text
+          do
+            echo "" >> ../search_report.txt
+            echo "File : $file" >> ../search_report.txt
+            echo "Line : $line" >> ../search_report.txt
+            echo "Code : $text" >> ../search_report.txt
+          done || true
+
+      - name: Send Report to Telegram
+        env:
+          TOKEN: ${{ secrets.TG_TOKEN }}
+          CHATID: ${{ secrets.TG_CHATID }}
+        run: |
+          KEY="${{ github.event.inputs.search }}"
+          BRANCH="${{ github.event.inputs.branch }}"
+          REPORT_CONTENT=$(head -c 3500 search_report.txt)
+          
+          if grep -q "======================================" search_report.txt && [ $(wc -l < search_report.txt) -le 12 ]; then
+            REPORT_CONTENT="Tidak ada hasil yang ditemukan untuk keyword: $KEY"
+          fi
+          
+          TEXT=$(cat <<EOF
+          yoo search done!
+          Branch: $BRANCH
+          Keyword: $KEY
+
+          $REPORT_CONTENT
+          EOF
+          )
+
+          curl -sX POST https://api.telegram.org/bot$TOKEN/sendMessage \
+            -d chat_id="$CHATID" \
+            --data-urlencode text="$TEXT"
+            
