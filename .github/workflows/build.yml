@@ -8,7 +8,7 @@ on:
         required: true
         default: "0"
       localversion:
-        description: "lkv414 2026"
+        description: "Youffx 2026"
         required: false
         default: ""
 
@@ -141,7 +141,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$PWD/llvm/bin:$PATH"
-          export KBUILD_BUILD_USER="lkv414"
+          export KBUILD_BUILD_USER="youffx"
           export KBUILD_BUILD_HOST="collection"
           export KBUILD_BUILD_VERSION=1
           export KCONFIG_NOTIMESTAMP=1
@@ -156,16 +156,6 @@ jobs:
 
           cd kernel
           make O=out $DEFCONFIG
-
-          sed -i '/CONFIG_TCP_CONG_BBR/d' out/.config
-          sed -i '/CONFIG_DEFAULT_BBR/d' out/.config
-          sed -i '/CONFIG_DEFAULT_TCP_CONG/d' out/.config
-          sed -i '/CONFIG_NET_SCH_FQ/d' out/.config
-
-          echo 'CONFIG_TCP_CONG_BBR=y' >> out/.config
-          echo 'CONFIG_DEFAULT_BBR=y' >> out/.config
-          echo 'CONFIG_DEFAULT_TCP_CONG="bbr"' >> out/.config
-          echo 'CONFIG_NET_SCH_FQ=y' >> out/.config
 
           echo "CONFIG_LTO=y" >> out/.config
           echo "CONFIG_LTO_CLANG=y" >> out/.config
@@ -191,7 +181,7 @@ jobs:
           make O=out olddefconfig
 
           echo "--- DEBUG ---"
-          grep -E "CONFIG_IP_NF_TARGET_TTL|CONFIG_DEFAULT_TCP_CONG|CONFIG_TCP_CONG_BBR|CONFIG_DEFAULT_BBR|CONFIG_NET_SCH_FQ" out/.config
+          grep -E "CONFIG_IP_NF_TARGET_TTL|CONFIG_DEFAULT_TCP_CONG|CONFIG_TCP_CONG_BBR|CONFIG_DEFAULT_BBR|CONFIG_NET_SCH_FQ|SUSFS" out/.config
           echo "---------------------------------"
 
           make -j$(nproc --all) O=out \
@@ -360,7 +350,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$PWD/llvm/bin:$PATH"
-          export KBUILD_BUILD_USER="lkv414"
+          export KBUILD_BUILD_USER="youffx"
           export KBUILD_BUILD_HOST="collection"
           export KBUILD_BUILD_VERSION=1
           export KCONFIG_NOTIMESTAMP=1

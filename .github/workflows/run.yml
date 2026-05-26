@@ -8,7 +8,7 @@ on:
         required: true
         default: "0"
       localversion:
-        description: "lkv414 2026"
+        description: "Youffx 2026"
         required: false
         default: ""
 
@@ -138,7 +138,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$PWD/clang/bin:$PATH"
-          export KBUILD_BUILD_USER="lkv414"
+          export KBUILD_BUILD_USER="youffx"
           export KBUILD_BUILD_HOST="collection"
           export KBUILD_BUILD_VERSION=1
           export KCONFIG_NOTIMESTAMP=1
@@ -315,7 +315,7 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH="$PWD/clang/bin:$PATH"
-          export KBUILD_BUILD_USER="lkv414"
+          export KBUILD_BUILD_USER="youffx"
           export KBUILD_BUILD_HOST="collection"
           export KBUILD_BUILD_VERSION=1
           export KCONFIG_NOTIMESTAMP=1

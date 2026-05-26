@@ -4,19 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Target branch (e.g. dev OR commitSHA newBranch)"
+        description: "Target branch"
         required: true
       source:
         description: "Source repo (format: user/repo)"
         required: false
       commits:
-        description: "Cherry-pick commit IDs (space separated, optional)"
+        description: "Cherry-pick"
+        required: false
+      patch_urls:
+        description: "Patch URLs"
+        required: false
+      zip_url:
+        description: "ZIP URL"
         required: false
       revert_commits:
-        description: "Revert commit IDs (space separated, optional)"
+        description: "Revert commit"
         required: false
       exclude_files:
-        description: "Files to exclude (space separated, optional)"
+        description: "exclude Files"
         required: false
 
 jobs:
@@ -33,7 +39,7 @@ jobs:
       - name: Prepare Repository
         run: |
           INPUT="${{ github.event.inputs.branch }}"
-          REPO_URL="https://github.com/lkv414/kernel_xiaomi_rosemary.git"
+          REPO_URL="https://github.com/Youffx/kernel_xiaomi_rosemary.git"
 
           PARTS=($INPUT)
 
@@ -132,7 +138,8 @@ jobs:
             fi
 
             git add .
-            git commit --no-edit -C $commit || true
+            ORIG_SUBJECT=$(git log -1 --pretty=%s $commit)
+            git commit -m "Revert \"$ORIG_SUBJECT\""$'\n\n'"This reverts commit $commit." || true
           done
 
       - name: Cherry Pick Commits
@@ -170,7 +177,7 @@ jobs:
             COMMIT_MSG=$(git log -1 --pretty=%B $commit)
 
             if echo "$COMMIT_MSG" | grep -q "Signed-off-by:"; then
-              COMMIT_MSG="$COMMIT_MSG"$'\n'"Signed-off-by: lkv414 <lkv414@users.noreply.github.com>"
+              COMMIT_MSG="$COMMIT_MSG"$'\n'"Signed-off-by: Youffx <asa.jazal@gmail.com>"
             fi
 
             git add -A
@@ -182,14 +189,120 @@ jobs:
           echo "$CONFLICT_FILES" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
+      - name: Apply Patch URLs
+        if: ${{ github.event.inputs.patch_urls != '' }}
+        run: |
+          cd repo
+
+          mkdir -p ../patch_rejects
+
+          for patch_url in ${{ github.event.inputs.patch_urls }}
+          do
+            echo "Applying patch: $patch_url"
+
+            PATCH_NAME=$(basename "$patch_url")
+            TEMP_PATCH="/tmp/$PATCH_NAME"
+
+            RAW_URL="$patch_url"
+
+            if echo "$RAW_URL" | grep -q "github.com"; then
+              RAW_URL=$(echo "$RAW_URL" | \
+                sed 's|https://github.com/|https://raw.githubusercontent.com/|' | \
+                sed 's|/blob/|/|')
+            fi
+
+            echo "Downloading from: $RAW_URL"
+
+            curl -L "$RAW_URL" -o "$TEMP_PATCH"
+
+            git am "$TEMP_PATCH" 2>/dev/null || {
+              git am --abort || true
+
+              git apply --reject --whitespace=fix "$TEMP_PATCH" || true
+            }
+
+            find . -name "*.rej" -exec cp --parents {} ../patch_rejects/ \;
+
+            find . -name "*.rej" -delete
+
+            git add -A
+
+            if ! git diff --cached --quiet; then
+              PATCH_TITLE=$(grep -m1 "^Subject:" "$TEMP_PATCH" | sed 's/^Subject: \[PATCH\] //')
+
+              if [ -z "$PATCH_TITLE" ]; then
+                PATCH_TITLE="Apply patch: $PATCH_NAME"
+              fi
+
+              git commit -m "$PATCH_TITLE"$'\n\n'"Patch source: $patch_url" || true
+            else
+              echo "No changes to commit"
+            fi
+
+            rm -f "$TEMP_PATCH"
+          done
+
+      - name: Apply ZIP Overlay
+        if: ${{ github.event.inputs.zip_url != '' }}
+        run: |
+          cd repo
+
+          ZIP_URL="${{ github.event.inputs.zip_url }}"
+          TEMP_DIR="/tmp/zip_overlay"
+          ZIP_FILE="/tmp/overlay.zip"
+
+          rm -rf "$TEMP_DIR"
+          mkdir -p "$TEMP_DIR"
+
+          if echo "$ZIP_URL" | grep -q "drive.google.com"; then
+            FILE_ID=$(echo "$ZIP_URL" | sed -n 's#.*\/d\/\([^/]*\)\/.*#\1#p')
+
+            curl -L "https://drive.google.com/uc?export=download&id=$FILE_ID" \
+              -o "$ZIP_FILE"
+          else
+            curl -L "$ZIP_URL" -o "$ZIP_FILE"
+          fi
+
+          unzip -o "$ZIP_FILE" -d "$TEMP_DIR"
+
+          cp -rf "$TEMP_DIR"/. .
+
+          if [ -n "${{ github.event.inputs.exclude_files }}" ]; then
+            for file in ${{ github.event.inputs.exclude_files }}
+            do
+              git checkout HEAD -- "$file" || true
+            done
+          fi
+
+          git add -A
+
+          if ! git diff --cached --quiet; then
+            BASE_HEAD=$(git rev-parse --short HEAD)
+
+            git commit -m "kernel: sync overlay adjustments from latest upstream state"$'\n\n'"Continuation and compatibility adjustments based on latest HEAD commits."$'\n'"Base HEAD: $BASE_HEAD"$'\n\n'"Signed-off-by: Youffx <asa.jazal@gmail.com>" || true
+          else
+            echo "No overlay changes detected"
+          fi
+
+          rm -rf "$TEMP_DIR"
+          rm -f "$ZIP_FILE"
+
       - name: Push to Repository
         if: success()
         env:
           PAT_TOKEN: ${{ secrets.REPO_A_PAT }}
         run: |
           cd repo
-          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/lkv414/kernel_xiaomi_rosemary.git
+          git remote set-url origin https://x-access-token:${PAT_TOKEN}@github.com/Youffx/kernel_xiaomi_rosemary.git
           git push origin $WORK_BRANCH
+
+      - name: Upload Reject Files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-reject-files
+          path: patch_rejects
+          if-no-files-found: ignore
 
       - name: Notification
         env:
@@ -206,23 +319,46 @@ jobs:
 
           BUILD_DATE=$(date +"%a %b %d %H:%M:%S %Z %Y")
 
-          if [ "${{ env.CONFLICT_COUNT }}" -gt 0 ]; then
-            STATUS="⚠️ *Cherry-pick finished with conflicts*"
-            CONFLICT_INFO="*Conflicted files:*
+          CONFLICT_COUNT="${{ env.CONFLICT_COUNT }}"
+          CONFLICT_COUNT=${CONFLICT_COUNT:-0}
+
+          if [ "$CONFLICT_COUNT" -gt 0 ]; then
+            CHERRY_STATUS="⚠️ *Cherry-pick finished with conflicts*"
+            CHERRY_INFO="*Conflicted files:*
           \`\`\`
           ${{ env.CONFLICT_FILES }}
           \`\`\`"
           else
-            STATUS="✅ *Cherry-pick success (no conflicts)*"
-            CONFLICT_INFO=""
+            CHERRY_STATUS="✅ *Cherry-pick success (no conflicts)*"
+            CHERRY_INFO=""
           fi
 
-          MESSAGE="*Cherry Pick Report*
-          $STATUS
+          REJ_FILES=$(find patch_rejects -type f 2>/dev/null)
+
+          if [ -n "$REJ_FILES" ]; then
+            PATCH_STATUS="⚠️ *Patch applied with reject files (.rej)*"
+
+            PATCH_INFO="*Reject files:*
+          \`\`\`
+          $REJ_FILES
+          \`\`\`
+
+          *Artifact:* \`patch-reject-files\`"
+          else
+            PATCH_STATUS="✅ *All patches applied successfully*"
+            PATCH_INFO=""
+          fi
+
+          MESSAGE="*Cherry Pick & Patch Report*
+
+          $CHERRY_STATUS
+          $PATCH_STATUS
 
           *Date:* \`$BUILD_DATE\`
 
-          $CONFLICT_INFO"
+          $CHERRY_INFO
+
+          $PATCH_INFO"
 
           tg "$MESSAGE"
     
